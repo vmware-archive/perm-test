@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 
+	"code.cloudfoundry.org/lager"
 	"github.com/pivotal-cf/perm-test/cmd"
 	"gopkg.in/yaml.v2"
 
@@ -42,6 +43,9 @@ func main() {
 		panic(err)
 	}
 
+	logger := config.NewLogger("perm-loaddata")
+	logger.Debug("starting")
+
 	cfClientConfig := &cfclient.Config{
 		ApiAddress:        config.CloudControllerConfig.URL,
 		Username:          config.CloudControllerConfig.ClientID,
@@ -50,29 +54,38 @@ func main() {
 	}
 	cfClient, err := cfclient.NewClient(cfClientConfig)
 	if err != nil {
-		fmt.Printf("Failed to make a cf client from parsed config data: %s\n", err.Error())
-		panic(err)
+		logger.Fatal("failed-to-make-cf-client", err)
 	}
 
 	userID := uuid.NewV4()
 	userRequest := cfclient.UserRequest{
 		Guid: userID.String(),
 	}
+	logger.Debug("creating-user", lager.Data{
+		"guid": userID.String(),
+	})
 	user, err := cfClient.CreateUser(userRequest)
 	if err != nil {
-		fmt.Printf("Failed to create cf user: %s\n", err.Error())
-		panic(err)
+		logger.Fatal("failed-to-create-cf-user", err)
 	}
 
+	orgName := "test-org"
 	orgRequest := cfclient.OrgRequest{
-		Name: "test-org",
+		Name: orgName,
 	}
+	logger.Debug("creating-org", lager.Data{
+		"name": orgName,
+	})
 	org, err := cfClient.CreateOrg(orgRequest)
 	if err != nil {
-		fmt.Printf("Failed to create cf org: %s\n", err.Error())
-		panic(err)
+		logger.Fatal("failed-to-create-cf-org", err)
 	}
 
+	logger = logger.WithData(lager.Data{
+		"user.guid": userID.String(),
+		"org.name":  orgName,
+	})
+	logger.Debug("associating-user-with-org")
 	_, err = cfClient.AssociateOrgUser(org.Guid, userID.String())
 	if err != nil {
 		fmt.Printf("Failed to make user of an org: %s\n", err.Error())
@@ -82,64 +95,69 @@ func main() {
 
 	sem := semaphore.NewWeighted(NumParallelWorkers)
 	ctx := context.Background()
+
+	defer logger.Debug("finished")
 	for i := 0; i < config.TestDataConfig.SpaceCount; i++ {
 		err = sem.Acquire(ctx, 1)
 		if err != nil {
-			fmt.Printf("Failed to acquire semaphore: %s\n", err.Error())
-			panic(err)
+			logger.Fatal("failed-to-acquire-semaphore", err)
 		}
 
 		wg.Add(1)
-		go func(wg *sync.WaitGroup, org cfclient.Org, id int) {
+		go func(wg *sync.WaitGroup, org cfclient.Org, i int) {
 			defer wg.Done()
 			defer sem.Release(1)
 
+			spaceName := fmt.Sprintf("perm-test-space-%d", i)
+			logger = logger.WithData(lager.Data{
+				"space.name": spaceName,
+			})
+			logger.Debug("creating-space")
 			spaceRequest := cfclient.SpaceRequest{
-				Name:             fmt.Sprintf("perm-test-space-%d", i),
+				Name:             spaceName,
 				OrganizationGuid: org.Guid,
 			}
 			space, err := cfClient.CreateSpace(spaceRequest)
 			if err != nil {
-				fmt.Printf("Failed to create space: %s\n", err.Error())
-				panic(err)
+				logger.Fatal("failed-to-create-space", err)
 			}
 
+			logger.Debug("making-user-space-developer")
 			r := cfClient.NewRequest("PUT", fmt.Sprintf("/v2/spaces/%s/developers/%s", space.Guid, user.Guid))
 			resp, err := cfClient.DoRequest(r)
 			if err != nil {
-				fmt.Printf("Failed to associate user to space developer: %s\n", err.Error())
-				panic(err)
+				logger.Fatal("failed-to-make-user-space-developer", err)
 			}
 
 			if resp.StatusCode != http.StatusCreated {
 				err = fmt.Errorf("Incorrect status code (%d)", resp.StatusCode)
-				fmt.Printf("Failed to associate user to space developer: %s\n", err.Error())
-				panic(err)
+				logger.Fatal("failed-to-make-user-space-developer", err)
 			}
 
 			for j := 0; j < config.TestDataConfig.AppsPerSpaceCount; j++ {
 				buf := bytes.NewBuffer(nil)
 				appName := fmt.Sprintf("perm-test-app-%d-in-space-%d", j, i)
 
+				logger = logger.WithData(lager.Data{
+					"app.name": appName,
+				})
 				req := NewCreateAppRequest(appName, SpaceGUID(space.Guid))
 
 				err := json.NewEncoder(buf).Encode(req)
 				if err != nil {
-					fmt.Printf("Failed to create app request: %s\n", err.Error())
-					panic(err)
+					logger.Fatal("failed-to-create-app-request", err)
 				}
 
+				logger.Debug("creating-app")
 				r := cfClient.NewRequestWithBody("POST", "/v3/apps", buf)
 				resp, err := cfClient.DoRequest(r)
 				if err != nil {
-					fmt.Printf("Failed to create app: %s\n", err.Error())
-					panic(err)
+					logger.Fatal("failed-to-create-app", err)
 				}
 
 				if resp.StatusCode != http.StatusCreated {
 					err = fmt.Errorf("Incorrect status code (%d)", resp.StatusCode)
-					fmt.Printf("Failed to create app: %s", err.Error())
-					panic(err)
+					logger.Fatal("failed-to-create-app", err)
 				}
 			}
 		}(&wg, org, i)

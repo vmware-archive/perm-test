@@ -3,6 +3,12 @@
 
 [[projects]]
   branch = "master"
+  name = "code.cloudfoundry.org/lager"
+  packages = ["."]
+  revision = "0bfa98e49e7a976af91e918d47978f07c00b081f"
+
+[[projects]]
+  branch = "master"
   name = "github.com/cloudfoundry-community/go-cfclient"
   packages = ["."]
   revision = "bdb31282431a30516bb8d28628e95dd47e577df6"
@@ -58,6 +64,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "dd6549532cba96997c6d872d9d0095e9224e3241157618eb34feb5515e19d091"
+  inputs-digest = "18f1cbae2be98adcb190ecc7a04189a3303971b238d18ac336ee4ce4be9c8ee0"
   solver-name = "gps-cdcl"
   solver-version = 1
