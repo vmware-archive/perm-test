@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -15,7 +16,11 @@ import (
 
 	"github.com/cloudfoundry-community/go-cfclient"
 	"github.com/satori/go.uuid"
+
+	"golang.org/x/sync/semaphore"
 )
+
+const NumParallelWorkers = 12
 
 func main() {
 	if len(os.Args) < 2 {
@@ -74,10 +79,20 @@ func main() {
 	}
 
 	wg := sync.WaitGroup{}
+
+	sem := semaphore.NewWeighted(NumParallelWorkers)
+	ctx := context.Background()
 	for i := 0; i < config.TestDataConfig.SpaceCount; i++ {
+		err = sem.Acquire(ctx, 1)
+		if err != nil {
+			fmt.Printf("Failed to acquire semaphore: %s\n", err.Error())
+			panic(err)
+		}
+
 		wg.Add(1)
 		go func(wg *sync.WaitGroup, org cfclient.Org, id int) {
 			defer wg.Done()
+			defer sem.Release(1)
 
 			spaceRequest := cfclient.SpaceRequest{
 				Name:             fmt.Sprintf("perm-test-space-%d", i),
