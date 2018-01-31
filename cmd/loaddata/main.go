@@ -104,7 +104,7 @@ func main() {
 		}
 
 		wg.Add(1)
-		go func(wg *sync.WaitGroup, org cfclient.Org, i int) {
+		go func(wg *sync.WaitGroup, logger lager.Logger, org cfclient.Org, i int) {
 			defer wg.Done()
 			defer sem.Release(1)
 
@@ -160,7 +160,7 @@ func main() {
 					logger.Fatal("failed-to-create-app", err)
 				}
 			}
-		}(&wg, org, i)
+		}(&wg, logger, org, i)
 	}
 
 	wg.Wait()
