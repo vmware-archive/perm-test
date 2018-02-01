@@ -143,27 +143,10 @@ func main() {
 				logger = logger.WithData(lager.Data{
 					"space.name": spaceName,
 				})
-				logger.Debug("creating-space")
-				spaceRequest := cfclient.SpaceRequest{
-					Name:             spaceName,
-					OrganizationGuid: org.Guid,
-				}
-				var space cfclient.Space
-				operation := func() error {
-					space, err = cfClient.CreateSpace(spaceRequest)
-					if err != nil {
-						return err
-					}
-					return nil
-				}
-				err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
-					logger.Error("failed-to-create-space", err, lager.Data{
-						"backoff.step": step.String(),
-					})
-				})
+
+				space, err := cmd.CreateSpace(logger, cfClient, spaceName, org.Guid)
 				if err != nil {
-					logger.Fatal("finally-failed-to-create-space", err)
-					return
+					panic(err)
 				}
 
 				err = cmd.MakeUserSpaceDeveloper(logger, cfClient, user.Guid, space.Guid)
