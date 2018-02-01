@@ -15,8 +15,6 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/cenkalti/backoff"
-
 	"golang.org/x/sync/semaphore"
 )
 
@@ -95,47 +93,19 @@ func main() {
 			defer sem.Release(1)
 
 			orgName := fmt.Sprintf("perm-test-org-%d", i)
-			orgRequest := cfclient.OrgRequest{
-				Name: orgName,
-			}
-			logger.Debug("creating-org", lager.Data{
-				"name": orgName,
-			})
-			var org cfclient.Org
-			operation := func() error {
-				org, err = cfClient.CreateOrg(orgRequest)
-				if err != nil {
-					return err
-				}
-				return nil
+			org, err := cmd.CreateOrg(logger, cfClient, orgName)
+			if err != nil {
+				panic(err)
 			}
 
-			err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
-				logger.Error("failed-to-create-org", err, lager.Data{
-					"backoff.step": step.String(),
-				})
-			})
-			if err != nil {
-				logger.Fatal("finally-failed-to-create-org", err)
-				return
-			}
 			logger = logger.WithData(lager.Data{
 				"user.guid": userID,
 				"org.name":  orgName,
 			})
-			logger.Debug("associating-user-with-org")
-			operation = func() error {
-				_, err = cfClient.AssociateOrgUser(org.Guid, userID)
-				return err
-			}
-			err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
-				logger.Error("failed-to-associate-user-with-org", err, lager.Data{
-					"backoff.step": step.String(),
-				})
-			})
+
+			err = cmd.AssociateUserWithOrg(logger, cfClient, user.Guid, org.Guid)
 			if err != nil {
-				logger.Fatal("finally-failed-to-associate-user-with-org", err)
-				return
+				panic(err)
 			}
 
 			for j := 0; j < config.TestDataConfig.SpacesPerOrgCount; j++ {
