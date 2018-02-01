@@ -59,20 +59,14 @@ func main() {
 	}
 	cfClient, err := cfclient.NewClient(cfClientConfig)
 	if err != nil {
-		logger.Fatal("failed-to-make-cf-client", err)
+		logger.Error("failed-to-make-cf-client", err)
+		panic(err)
 	}
 
 	userID := config.TestDataConfig.SystemUnderTestConfig.UserGUID
-	userRequest := cfclient.UserRequest{
-		Guid: userID,
-	}
-	logger.Debug("creating-user", lager.Data{
-		"guid": userID,
-	})
-	user, err := cfClient.CreateUser(userRequest)
+	user, err := cmd.CreateUser(logger, cfClient, userID)
 	if err != nil {
-		logger.Fatal("failed-to-create-cf-user", err)
-		os.Exit(1)
+		panic(err)
 	}
 
 	wg := sync.WaitGroup{}
@@ -84,7 +78,8 @@ func main() {
 	for i := 0; i < config.TestDataConfig.SystemUnderTestConfig.OrgCount; i++ {
 		err = sem.Acquire(ctx, 1)
 		if err != nil {
-			logger.Fatal("failed-to-acquire-semaphore", err)
+			logger.Error("failed-to-acquire-semaphore", err)
+			panic(err)
 		}
 
 		wg.Add(1)
