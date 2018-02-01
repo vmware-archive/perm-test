@@ -92,52 +92,60 @@ func main() {
 			defer wg.Done()
 			defer sem.Release(1)
 
-			orgName := fmt.Sprintf("perm-test-org-%d", i)
-			org, err := cmd.CreateOrg(logger, cfClient, orgName)
+			err = createAndPopulateOrg(logger, cfClient, i, user.Guid, config.TestDataConfig.SpacesPerOrgCount, config.TestDataConfig.AppsPerSpaceCount)
 			if err != nil {
 				panic(err)
-			}
-
-			logger = logger.WithData(lager.Data{
-				"user.guid": userID,
-				"org.name":  orgName,
-			})
-
-			err = cmd.AssociateUserWithOrg(logger, cfClient, user.Guid, org.Guid)
-			if err != nil {
-				panic(err)
-			}
-
-			for j := 0; j < config.TestDataConfig.SpacesPerOrgCount; j++ {
-				spaceName := fmt.Sprintf("perm-test-space-%d-in-org-%d", j, i)
-				logger = logger.WithData(lager.Data{
-					"space.name": spaceName,
-				})
-
-				space, err := cmd.CreateSpace(logger, cfClient, spaceName, org.Guid)
-				if err != nil {
-					panic(err)
-				}
-
-				err = cmd.MakeUserSpaceDeveloper(logger, cfClient, user.Guid, space.Guid)
-				if err != nil {
-					panic(err)
-				}
-
-				for k := 0; k < config.TestDataConfig.AppsPerSpaceCount; k++ {
-					appName := fmt.Sprintf("perm-test-app-%d-in-space-%d-in-org-%d", k, j, i)
-					logger = logger.WithData(lager.Data{
-						"app.name": appName,
-					})
-
-					err = cmd.CreateApp(logger, cfClient, appName, space.Guid)
-					if err != nil {
-						panic(err)
-					}
-				}
 			}
 		}(ctx, &wg, logger, i)
 	}
 
 	wg.Wait()
+}
+
+func createAndPopulateOrg(logger lager.Logger, cfClient *cfclient.Client, i int, userGUID string, spacesPerOrgCount int, appsPerSpaceCount int) error {
+	orgName := fmt.Sprintf("perm-test-org-%d", i)
+	org, err := cmd.CreateOrg(logger, cfClient, orgName)
+	if err != nil {
+		return err
+	}
+
+	logger = logger.WithData(lager.Data{
+		"user.guid": userGUID,
+		"org.name":  orgName,
+	})
+
+	err = cmd.AssociateUserWithOrg(logger, cfClient, userGUID, org.Guid)
+	if err != nil {
+		return err
+	}
+
+	for j := 0; j < spacesPerOrgCount; j++ {
+		spaceName := fmt.Sprintf("perm-test-space-%d-in-org-%d", j, i)
+		logger = logger.WithData(lager.Data{
+			"space.name": spaceName,
+		})
+
+		space, err := cmd.CreateSpace(logger, cfClient, spaceName, org.Guid)
+		if err != nil {
+			return err
+		}
+
+		err = cmd.MakeUserSpaceDeveloper(logger, cfClient, userGUID, space.Guid)
+		if err != nil {
+			return err
+		}
+
+		for k := 0; k < appsPerSpaceCount; k++ {
+			appName := fmt.Sprintf("perm-test-app-%d-in-space-%d-in-org-%d", k, j, i)
+			logger = logger.WithData(lager.Data{
+				"app.name": appName,
+			})
+
+			err = cmd.CreateApp(logger, cfClient, appName, space.Guid)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
