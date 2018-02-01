@@ -8,10 +8,17 @@
   revision = "0bfa98e49e7a976af91e918d47978f07c00b081f"
 
 [[projects]]
-  branch = "master"
+  name = "github.com/cenkalti/backoff"
+  packages = ["."]
+  revision = "61153c768f31ee5f130071d08fc82b85208528de"
+  version = "v1.1.0"
+
+[[projects]]
+  branch = "add-v3-errors"
   name = "github.com/cloudfoundry-community/go-cfclient"
   packages = ["."]
-  revision = "bdb31282431a30516bb8d28628e95dd47e577df6"
+  revision = "cf59814cf6d61179e1a71e5bd5a8cbeaf1a19ea7"
+  source = "github.com/jeffpak/go-cfclient"
 
 [[projects]]
   branch = "master"
@@ -64,6 +71,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "18f1cbae2be98adcb190ecc7a04189a3303971b238d18ac336ee4ce4be9c8ee0"
+  inputs-digest = "8a32016dcb778406fc6aab73adffc0a4c808c3ffa0dfb1202263790cb74130db"
   solver-name = "gps-cdcl"
   solver-version = 1

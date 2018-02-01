@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"time"
 
 	"code.cloudfoundry.org/lager"
+	"github.com/cloudfoundry-community/go-cfclient"
 	"github.com/pivotal-cf/perm-test/cmd"
+	"github.com/satori/go.uuid"
 	"gopkg.in/yaml.v2"
 
 	"bytes"
@@ -15,13 +18,15 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/cloudfoundry-community/go-cfclient"
-	"github.com/satori/go.uuid"
+	"github.com/cenkalti/backoff"
 
 	"golang.org/x/sync/semaphore"
 )
 
-const NumParallelWorkers = 12
+const (
+	NumParallelWorkers     = 12
+	CloudControllerTimeout = 3 * time.Second
+)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -46,11 +51,16 @@ func main() {
 	logger := config.NewLogger("perm-loaddata")
 	logger.Debug("starting")
 
+	httpClient := &http.Client{
+		Timeout: CloudControllerTimeout,
+	}
+
 	cfClientConfig := &cfclient.Config{
 		ApiAddress:        config.CloudControllerConfig.URL,
 		Username:          config.CloudControllerConfig.ClientID,
 		Password:          config.CloudControllerConfig.ClientSecret,
 		SkipSslValidation: true,
+		HttpClient:        httpClient,
 	}
 	cfClient, err := cfclient.NewClient(cfClientConfig)
 	if err != nil {
@@ -104,7 +114,7 @@ func main() {
 		}
 
 		wg.Add(1)
-		go func(wg *sync.WaitGroup, logger lager.Logger, org cfclient.Org, i int) {
+		go func(ctx context.Context, wg *sync.WaitGroup, logger lager.Logger, org cfclient.Org, i int) {
 			defer wg.Done()
 			defer sem.Release(1)
 
@@ -117,25 +127,52 @@ func main() {
 				Name:             spaceName,
 				OrganizationGuid: org.Guid,
 			}
-			space, err := cfClient.CreateSpace(spaceRequest)
+			var space cfclient.Space
+			operation := func() error {
+				space, err = cfClient.CreateSpace(spaceRequest)
+				if err != nil {
+					return err
+				}
+				return nil
+			}
+			err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
+				logger.Error("failed-to-create-space", err, lager.Data{
+					"backoff.step": step.String(),
+				})
+			})
 			if err != nil {
-				logger.Fatal("failed-to-create-space", err)
+				logger.Fatal("finally-failed-to-create-space", err)
+				return
 			}
 
 			logger.Debug("making-user-space-developer")
 			r := cfClient.NewRequest("PUT", fmt.Sprintf("/v2/spaces/%s/developers/%s", space.Guid, user.Guid))
-			resp, err := cfClient.DoRequest(r)
-			if err != nil {
-				logger.Fatal("failed-to-make-user-space-developer", err)
-			}
+			operation = func() error {
+				resp, err := cfClient.DoRequest(r)
 
-			if resp.StatusCode != http.StatusCreated {
-				err = fmt.Errorf("Incorrect status code (%d)", resp.StatusCode)
-				logger.Fatal("failed-to-make-user-space-developer", err)
+				if err != nil {
+					return err
+				}
+
+				if resp.StatusCode != http.StatusCreated {
+					err = fmt.Errorf("Incorrect status code (%d)", resp.StatusCode)
+					return err
+				}
+
+				return nil
+			}
+			err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
+				logger.Error("failed-to-make-user-space-developer", err, lager.Data{
+					"backoff.step": step.String(),
+				})
+			})
+
+			if err != nil {
+				logger.Fatal("finally-failed-to-make-user-space-developer", err)
+				return
 			}
 
 			for j := 0; j < config.TestDataConfig.AppsPerSpaceCount; j++ {
-				buf := bytes.NewBuffer(nil)
 				appName := fmt.Sprintf("perm-test-app-%d-in-space-%d", j, i)
 
 				logger = logger.WithData(lager.Data{
@@ -143,24 +180,47 @@ func main() {
 				})
 				req := NewCreateAppRequest(appName, SpaceGUID(space.Guid))
 
-				err := json.NewEncoder(buf).Encode(req)
-				if err != nil {
-					logger.Fatal("failed-to-create-app-request", err)
+				operation = func() error {
+					err := CreateApp(cfClient, req)
+
+					switch e := err.(type) {
+					case cfclient.V3CloudFoundryErrors:
+						if len(e.Errors) == 0 {
+							return err
+						}
+
+						//
+						// Setting a Timeout on the HttpClient, there is a risk of
+						// the request succeeding, but being cancelled on the client side
+						// This causes the app to be created, but the backoff thinks it failed
+						// due to timeout. When it tries the operation a second time, it fails
+						// with "name must be unique in space" error, because it already exists.
+						//
+						// To get around this, we return nil if we detect this case, which causes
+						// the backoff function to stop retrying.
+						//
+						cfError := e.Errors[0]
+						if cfError.Detail == "name must be unique in space" {
+							return nil
+						}
+
+						return err
+					default:
+						return err
+					}
 				}
 
-				logger.Debug("creating-app")
-				r := cfClient.NewRequestWithBody("POST", "/v3/apps", buf)
-				resp, err := cfClient.DoRequest(r)
+				err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
+					logger.Error("failed-to-create-app", err, lager.Data{
+						"backoff.step": step.String(),
+					})
+				})
 				if err != nil {
-					logger.Fatal("failed-to-create-app", err)
-				}
-
-				if resp.StatusCode != http.StatusCreated {
-					err = fmt.Errorf("Incorrect status code (%d)", resp.StatusCode)
-					logger.Fatal("failed-to-create-app", err)
+					logger.Fatal("finally-failed-to-create-app", err)
+					return
 				}
 			}
-		}(&wg, logger, org, i)
+		}(ctx, &wg, logger, org, i)
 	}
 
 	wg.Wait()
@@ -177,6 +237,25 @@ func NewCreateAppRequest(appName string, spaceGUID SpaceGUID) *CreateAppRequestB
 			},
 		},
 	}
+}
+
+func CreateApp(cfClient *cfclient.Client, requestBody *CreateAppRequestBody) error {
+	buf := bytes.NewBuffer(nil)
+	err := json.NewEncoder(buf).Encode(requestBody)
+	if err != nil {
+		return err
+	}
+
+	r := cfClient.NewRequestWithBody("POST", "/v3/apps", buf)
+	resp, err := cfClient.DoRequest(r)
+	if err != nil {
+		return err
+	}
+	if resp.StatusCode != http.StatusCreated {
+		err = fmt.Errorf("Incorrect status code (%d)", resp.StatusCode)
+		return err
+	}
+	return nil
 }
 
 type CreateAppRequestBody struct {

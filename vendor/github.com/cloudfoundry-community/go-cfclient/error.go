@@ -27,3 +27,27 @@ type CloudFoundryError struct {
 func (cfErr CloudFoundryError) Error() string {
 	return fmt.Sprintf("cfclient: error (%d): %s", cfErr.Code, cfErr.ErrorCode)
 }
+
+type V3CloudFoundryErrors struct {
+	Errors []V3CloudFoundryError `json:"errors"`
+}
+
+func (cfErrs V3CloudFoundryErrors) Error() string {
+	err := ""
+
+	for _, cfErr := range cfErrs.Errors {
+		err += fmt.Sprintf("%s\n", cfErr)
+	}
+
+	return err
+}
+
+type V3CloudFoundryError struct {
+	Detail string `json:"detail"`
+	Title  string `json:"title"`
+	Code   int    `json:"code"`
+}
+
+func (cfErr V3CloudFoundryError) Error() string {
+	return fmt.Sprintf("cfclient: error (%d) %s: %s", cfErr.Code, cfErr.Title, cfErr.Detail)
+}

@@ -263,11 +263,29 @@ func (c *Client) DoRequest(r *request) (*http.Response, error) {
 	}
 
 	if resp.StatusCode >= http.StatusBadRequest {
+
+		defer resp.Body.Close()
+
+		var buf bytes.Buffer
+		tee := io.TeeReader(resp.Body, &buf)
+
 		var cfErr CloudFoundryError
-		if err := decodeBody(resp, &cfErr); err != nil {
+		err := json.NewDecoder(tee).Decode(&cfErr)
+		if err != nil {
 			return resp, errors.Wrap(err, "Unable to decode body")
 		}
-		return nil, cfErr
+		if cfErr.Code != 0 {
+			return nil, cfErr
+		}
+
+		// Attempt to parse it via v3 error handling
+		var cfV3Err V3CloudFoundryErrors
+		err = json.NewDecoder(&buf).Decode(&cfV3Err)
+		if err != nil {
+			return resp, errors.Wrap(err, "Unable to decode body")
+		}
+
+		return nil, cfV3Err
 	}
 
 	return resp, nil

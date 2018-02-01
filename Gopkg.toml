@@ -30,8 +30,9 @@
   name = "code.cloudfoundry.org/cf-test-helpers"
 
 [[constraint]]
-  branch = "master"
+  branch = "add-v3-errors"
   name = "github.com/cloudfoundry-community/go-cfclient"
+  source = "github.com/jeffpak/go-cfclient"
 
 [[constraint]]
   name = "github.com/satori/go.uuid"
@@ -44,3 +45,7 @@
 [[constraint]]
   branch = "master"
   name = "code.cloudfoundry.org/lager"
+
+[[constraint]]
+  name = "github.com/cenkalti/backoff"
+  version = "1.1.0"
