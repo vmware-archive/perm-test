@@ -20,8 +20,15 @@ type CloudControllerConfig struct {
 }
 
 type TestDataConfig struct {
-	SpaceCount        int `yaml:"space_count"`
 	AppsPerSpaceCount int `yaml:"apps_per_space_count"`
+	SpacesPerOrgCount int `yaml:"spaces_per_org_count"`
+
+	SystemUnderTestConfig SystemUnderTestConfig `yaml:"system_under_test"`
+}
+
+type SystemUnderTestConfig struct {
+	UserGUID string `yaml:"user_guid"`
+	OrgCount int    `yaml:"org_count"`
 }
 
 func (c *LoadDataConfig) NewLogger(component string) lager.Logger {

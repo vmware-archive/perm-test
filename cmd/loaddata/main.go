@@ -10,7 +10,6 @@ import (
 	"code.cloudfoundry.org/lager"
 	"github.com/cloudfoundry-community/go-cfclient"
 	"github.com/pivotal-cf/perm-test/cmd"
-	"github.com/satori/go.uuid"
 	"gopkg.in/yaml.v2"
 
 	"bytes"
@@ -67,38 +66,17 @@ func main() {
 		logger.Fatal("failed-to-make-cf-client", err)
 	}
 
-	userID := uuid.NewV4()
+	userID := config.TestDataConfig.SystemUnderTestConfig.UserGUID
 	userRequest := cfclient.UserRequest{
-		Guid: userID.String(),
+		Guid: userID,
 	}
 	logger.Debug("creating-user", lager.Data{
-		"guid": userID.String(),
+		"guid": userID,
 	})
 	user, err := cfClient.CreateUser(userRequest)
 	if err != nil {
 		logger.Fatal("failed-to-create-cf-user", err)
-	}
-
-	orgName := "test-org"
-	orgRequest := cfclient.OrgRequest{
-		Name: orgName,
-	}
-	logger.Debug("creating-org", lager.Data{
-		"name": orgName,
-	})
-	org, err := cfClient.CreateOrg(orgRequest)
-	if err != nil {
-		logger.Fatal("failed-to-create-cf-org", err)
-	}
-
-	logger = logger.WithData(lager.Data{
-		"user.guid": userID.String(),
-		"org.name":  orgName,
-	})
-	logger.Debug("associating-user-with-org")
-	_, err = cfClient.AssociateOrgUser(org.Guid, userID.String())
-	if err != nil {
-		fmt.Printf("Failed to make user of an org: %s\n", err.Error())
+		os.Exit(1)
 	}
 
 	wg := sync.WaitGroup{}
@@ -107,120 +85,166 @@ func main() {
 	ctx := context.Background()
 
 	defer logger.Debug("finished")
-	for i := 0; i < config.TestDataConfig.SpaceCount; i++ {
+	for i := 0; i < config.TestDataConfig.SystemUnderTestConfig.OrgCount; i++ {
 		err = sem.Acquire(ctx, 1)
 		if err != nil {
 			logger.Fatal("failed-to-acquire-semaphore", err)
 		}
 
 		wg.Add(1)
-		go func(ctx context.Context, wg *sync.WaitGroup, logger lager.Logger, org cfclient.Org, i int) {
+		go func(ctx context.Context, wg *sync.WaitGroup, logger lager.Logger, i int) {
 			defer wg.Done()
 			defer sem.Release(1)
 
-			spaceName := fmt.Sprintf("perm-test-space-%d", i)
-			logger = logger.WithData(lager.Data{
-				"space.name": spaceName,
-			})
-			logger.Debug("creating-space")
-			spaceRequest := cfclient.SpaceRequest{
-				Name:             spaceName,
-				OrganizationGuid: org.Guid,
+			orgName := fmt.Sprintf("perm-test-org-%d", i)
+			orgRequest := cfclient.OrgRequest{
+				Name: orgName,
 			}
-			var space cfclient.Space
+			logger.Debug("creating-org", lager.Data{
+				"name": orgName,
+			})
+			var org cfclient.Org
 			operation := func() error {
-				space, err = cfClient.CreateSpace(spaceRequest)
+				org, err = cfClient.CreateOrg(orgRequest)
 				if err != nil {
 					return err
 				}
 				return nil
 			}
+
 			err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
-				logger.Error("failed-to-create-space", err, lager.Data{
+				logger.Error("failed-to-create-org", err, lager.Data{
 					"backoff.step": step.String(),
 				})
 			})
 			if err != nil {
-				logger.Fatal("finally-failed-to-create-space", err)
+				logger.Fatal("finally-failed-to-create-org", err)
 				return
 			}
-
-			logger.Debug("making-user-space-developer")
-			r := cfClient.NewRequest("PUT", fmt.Sprintf("/v2/spaces/%s/developers/%s", space.Guid, user.Guid))
+			logger = logger.WithData(lager.Data{
+				"user.guid": userID,
+				"org.name":  orgName,
+			})
+			logger.Debug("associating-user-with-org")
 			operation = func() error {
-				resp, err := cfClient.DoRequest(r)
-
-				if err != nil {
-					return err
-				}
-
-				if resp.StatusCode != http.StatusCreated {
-					err = fmt.Errorf("Incorrect status code (%d)", resp.StatusCode)
-					return err
-				}
-
-				return nil
+				_, err = cfClient.AssociateOrgUser(org.Guid, userID)
+				return err
 			}
 			err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
-				logger.Error("failed-to-make-user-space-developer", err, lager.Data{
+				logger.Error("failed-to-associate-user-with-org", err, lager.Data{
 					"backoff.step": step.String(),
 				})
 			})
-
 			if err != nil {
-				logger.Fatal("finally-failed-to-make-user-space-developer", err)
+				logger.Fatal("finally-failed-to-associate-user-with-org", err)
 				return
 			}
 
-			for j := 0; j < config.TestDataConfig.AppsPerSpaceCount; j++ {
-				appName := fmt.Sprintf("perm-test-app-%d-in-space-%d", j, i)
-
+			for j := 0; j < config.TestDataConfig.SpacesPerOrgCount; j++ {
+				spaceName := fmt.Sprintf("perm-test-space-%d-in-org-%d", j, i)
 				logger = logger.WithData(lager.Data{
-					"app.name": appName,
+					"space.name": spaceName,
 				})
-				req := NewCreateAppRequest(appName, SpaceGUID(space.Guid))
-
-				operation = func() error {
-					err := CreateApp(cfClient, req)
-
-					switch e := err.(type) {
-					case cfclient.V3CloudFoundryErrors:
-						if len(e.Errors) == 0 {
-							return err
-						}
-
-						//
-						// Setting a Timeout on the HttpClient, there is a risk of
-						// the request succeeding, but being cancelled on the client side
-						// This causes the app to be created, but the backoff thinks it failed
-						// due to timeout. When it tries the operation a second time, it fails
-						// with "name must be unique in space" error, because it already exists.
-						//
-						// To get around this, we return nil if we detect this case, which causes
-						// the backoff function to stop retrying.
-						//
-						cfError := e.Errors[0]
-						if cfError.Detail == "name must be unique in space" {
-							return nil
-						}
-
-						return err
-					default:
+				logger.Debug("creating-space")
+				spaceRequest := cfclient.SpaceRequest{
+					Name:             spaceName,
+					OrganizationGuid: org.Guid,
+				}
+				var space cfclient.Space
+				operation := func() error {
+					space, err = cfClient.CreateSpace(spaceRequest)
+					if err != nil {
 						return err
 					}
+					return nil
 				}
-
 				err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
-					logger.Error("failed-to-create-app", err, lager.Data{
+					logger.Error("failed-to-create-space", err, lager.Data{
 						"backoff.step": step.String(),
 					})
 				})
 				if err != nil {
-					logger.Fatal("finally-failed-to-create-app", err)
+					logger.Fatal("finally-failed-to-create-space", err)
 					return
 				}
+
+				logger.Debug("making-user-space-developer")
+				r := cfClient.NewRequest("PUT", fmt.Sprintf("/v2/spaces/%s/developers/%s", space.Guid, user.Guid))
+				operation = func() error {
+					resp, err := cfClient.DoRequest(r)
+
+					if err != nil {
+						return err
+					}
+
+					if resp.StatusCode != http.StatusCreated {
+						err = fmt.Errorf("Incorrect status code (%d)", resp.StatusCode)
+						return err
+					}
+
+					return nil
+				}
+				err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
+					logger.Error("failed-to-make-user-space-developer", err, lager.Data{
+						"backoff.step": step.String(),
+					})
+				})
+
+				if err != nil {
+					logger.Fatal("finally-failed-to-make-user-space-developer", err)
+					return
+				}
+
+				for k := 0; k < config.TestDataConfig.AppsPerSpaceCount; k++ {
+					appName := fmt.Sprintf("perm-test-app-%d-in-space-%d-in-org-%d", k, j, i)
+
+					logger = logger.WithData(lager.Data{
+						"app.name": appName,
+					})
+					req := NewCreateAppRequest(appName, SpaceGUID(space.Guid))
+
+					operation = func() error {
+						err := CreateApp(cfClient, req)
+
+						switch e := err.(type) {
+						case cfclient.V3CloudFoundryErrors:
+							if len(e.Errors) == 0 {
+								return err
+							}
+
+							//
+							// Setting a Timeout on the HttpClient, there is a risk of
+							// the request succeeding, but being cancelled on the client side
+							// This causes the app to be created, but the backoff thinks it failed
+							// due to timeout. When it tries the operation a second time, it fails
+							// with "name must be unique in space" error, because it already exists.
+							//
+							// To get around this, we return nil if we detect this case, which causes
+							// the backoff function to stop retrying.
+							//
+							cfError := e.Errors[0]
+							if cfError.Detail == "name must be unique in space" {
+								return nil
+							}
+
+							return err
+						default:
+							return err
+						}
+					}
+
+					err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
+						logger.Error("failed-to-create-app", err, lager.Data{
+							"backoff.step": step.String(),
+						})
+					})
+					if err != nil {
+						logger.Fatal("finally-failed-to-create-app", err)
+						return
+					}
+				}
 			}
-		}(ctx, &wg, logger, org, i)
+		}(ctx, &wg, logger, i)
 	}
 
 	wg.Wait()
