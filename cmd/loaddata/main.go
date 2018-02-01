@@ -44,7 +44,7 @@ func main() {
 	}
 
 	logger := config.NewLogger("perm-loaddata")
-	logger.Debug("starting")
+	logger.Info("starting")
 
 	httpClient := &http.Client{
 		Timeout: CloudControllerTimeout,
@@ -63,7 +63,7 @@ func main() {
 		panic(err)
 	}
 
-	defer logger.Debug("finished")
+	defer logger.Info("finished")
 
 	ctx := context.Background()
 	sem := semaphore.NewWeighted(NumParallelWorkers)
