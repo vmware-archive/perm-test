@@ -23,12 +23,13 @@ func CreateApp(logger lager.Logger, cfClient *cfclient.Client, name string, spac
 	}
 
 	operation := func() error {
-		err := json.NewEncoder(bytes.NewBuffer(nil)).Encode(req)
+		b := bytes.NewBuffer(nil)
+		err := json.NewEncoder(b).Encode(req)
 		if err != nil {
 			return err
 		}
 
-		r := cfClient.NewRequestWithBody("POST", "/v3/apps", bytes.NewBuffer(nil))
+		r := cfClient.NewRequestWithBody("POST", "/v3/apps", b)
 		resp, err := cfClient.DoRequest(r)
 
 		switch e := err.(type) {
