@@ -63,19 +63,45 @@ func main() {
 		panic(err)
 	}
 
-	userID := config.TestDataConfig.SystemUnderTestConfig.UserGUID
-	user, err := cmd.CreateUser(logger, cfClient, userID)
+	defer logger.Debug("finished")
+
+	ctx := context.Background()
+	sem := semaphore.NewWeighted(NumParallelWorkers)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		t := &DesiredSystemUnderTest{
+			UserGUID:          config.TestDataConfig.SystemUnderTestConfig.UserGUID,
+			OrgCount:          config.TestDataConfig.SystemUnderTestConfig.OrgCount,
+			SpacesPerOrgCount: config.TestDataConfig.SpacesPerOrgCount,
+			AppsPerSpaceCount: config.TestDataConfig.AppsPerSpaceCount,
+		}
+
+		t.Create(ctx, logger, sem, cfClient)
+	}()
+
+	wg.Wait()
+
+}
+
+type DesiredSystemUnderTest struct {
+	UserGUID          string
+	OrgCount          int
+	SpacesPerOrgCount int
+	AppsPerSpaceCount int
+}
+
+func (t *DesiredSystemUnderTest) Create(ctx context.Context, logger lager.Logger, sem *semaphore.Weighted, cfClient *cfclient.Client) {
+	user, err := cmd.CreateUser(logger, cfClient, t.UserGUID)
 	if err != nil {
 		panic(err)
 	}
 
-	wg := sync.WaitGroup{}
-
-	sem := semaphore.NewWeighted(NumParallelWorkers)
-	ctx := context.Background()
-
-	defer logger.Debug("finished")
-	for i := 0; i < config.TestDataConfig.SystemUnderTestConfig.OrgCount; i++ {
+	var wg sync.WaitGroup
+	for i := 0; i < t.OrgCount; i++ {
 		err = sem.Acquire(ctx, 1)
 		if err != nil {
 			logger.Error("failed-to-acquire-semaphore", err)
@@ -87,13 +113,12 @@ func main() {
 			defer wg.Done()
 			defer sem.Release(1)
 
-			err = createAndPopulateOrg(logger, cfClient, i, user.Guid, config.TestDataConfig.SpacesPerOrgCount, config.TestDataConfig.AppsPerSpaceCount)
+			err = createAndPopulateOrg(logger, cfClient, i, user.Guid, t.SpacesPerOrgCount, t.AppsPerSpaceCount)
 			if err != nil {
 				panic(err)
 			}
 		}(ctx, &wg, logger, i)
 	}
-
 	wg.Wait()
 }
 
