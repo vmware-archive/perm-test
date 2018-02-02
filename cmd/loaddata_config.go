@@ -23,12 +23,18 @@ type TestDataConfig struct {
 	AppsPerSpaceCount int `yaml:"apps_per_space_count"`
 	SpacesPerOrgCount int `yaml:"spaces_per_org_count"`
 
-	SystemUnderTestConfig SystemUnderTestConfig `yaml:"system_under_test"`
+	TestEnvironmentConfig     TestEnvironmentConfig     `yaml:"test_environment"`
+	ExternalEnvironmentConfig ExternalEnvironmentConfig `yaml:"external_environment"`
 }
 
-type SystemUnderTestConfig struct {
+type TestEnvironmentConfig struct {
 	UserGUID string `yaml:"user_guid"`
 	OrgCount int    `yaml:"org_count"`
+}
+
+type ExternalEnvironmentConfig struct {
+	OrgCount  int `yaml:"org_count"`
+	UserCount int `yaml:"user_count"`
 }
 
 func (c *LoadDataConfig) NewLogger(component string) lager.Logger {
