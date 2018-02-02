@@ -7,7 +7,7 @@ import (
 
 	"code.cloudfoundry.org/lager"
 	"github.com/cloudfoundry-community/go-cfclient"
-	"github.com/pivotal-cf/perm-test/cmd"
+	"github.com/pivotal-cf/perm-test/cf"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -19,7 +19,7 @@ type DesiredTestEnvironment struct {
 }
 
 func (e *DesiredTestEnvironment) Create(ctx context.Context, logger lager.Logger, sem *semaphore.Weighted, cfClient *cfclient.Client) {
-	user, err := cmd.CreateUser(logger, cfClient, e.UserGUID)
+	user, err := cf.CreateUser(logger, cfClient, e.UserGUID)
 	if err != nil {
 		panic(err)
 	}
@@ -52,7 +52,7 @@ func createAndPopulateOrgInTestEnvironment(logger lager.Logger, cfClient *cfclie
 		"org.name": orgName,
 	})
 
-	org, err := cmd.CreateOrg(logger, cfClient, orgName)
+	org, err := cf.CreateOrg(logger, cfClient, orgName)
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func createAndPopulateOrgInTestEnvironment(logger lager.Logger, cfClient *cfclie
 		"user.guid": userGUID,
 	})
 
-	err = cmd.AssociateUserWithOrg(logger, cfClient, userGUID, org.Guid)
+	err = cf.AssociateUserWithOrg(logger, cfClient, userGUID, org.Guid)
 	if err != nil {
 		return err
 	}
@@ -72,12 +72,12 @@ func createAndPopulateOrgInTestEnvironment(logger lager.Logger, cfClient *cfclie
 			"space.name": spaceName,
 		})
 
-		space, err := cmd.CreateSpace(logger, cfClient, spaceName, org.Guid)
+		space, err := cf.CreateSpace(logger, cfClient, spaceName, org.Guid)
 		if err != nil {
 			return err
 		}
 
-		err = cmd.MakeUserSpaceDeveloper(logger, cfClient, userGUID, space.Guid)
+		err = cf.MakeUserSpaceDeveloper(logger, cfClient, userGUID, space.Guid)
 		if err != nil {
 			return err
 		}
@@ -88,7 +88,7 @@ func createAndPopulateOrgInTestEnvironment(logger lager.Logger, cfClient *cfclie
 				"app.name": appName,
 			})
 
-			err = cmd.CreateApp(logger, cfClient, appName, space.Guid)
+			err = cf.CreateApp(logger, cfClient, appName, space.Guid)
 			if err != nil {
 				return err
 			}

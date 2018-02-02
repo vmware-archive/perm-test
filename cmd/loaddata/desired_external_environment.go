@@ -10,7 +10,7 @@ import (
 
 	"code.cloudfoundry.org/lager"
 	"github.com/cloudfoundry-community/go-cfclient"
-	"github.com/pivotal-cf/perm-test/cmd"
+	"github.com/pivotal-cf/perm-test/cf"
 	"github.com/satori/go.uuid"
 	"golang.org/x/sync/semaphore"
 )
@@ -56,7 +56,7 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 			logger = logger.WithData(lager.Data{
 				"org.name": orgName,
 			})
-			org, err := cmd.CreateOrg(logger, cfClient, orgName)
+			org, err := cf.CreateOrg(logger, cfClient, orgName)
 			if err != nil {
 				panic(err)
 			}
@@ -69,7 +69,7 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 					"space.name": spaceName,
 				})
 
-				space, err := cmd.CreateSpace(logger, cfClient, spaceName, org.Guid)
+				space, err := cf.CreateSpace(logger, cfClient, spaceName, org.Guid)
 				if err != nil {
 					panic(err)
 				}
@@ -82,7 +82,7 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 						"app.name": appName,
 					})
 
-					err = cmd.CreateApp(logger, cfClient, appName, space.Guid)
+					err = cf.CreateApp(logger, cfClient, appName, space.Guid)
 					if err != nil {
 						panic(err)
 					}
@@ -133,7 +133,7 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 			r := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
 			userUUID := uuid.NewV4()
 
-			user, err := cmd.CreateUser(logger, cfClient, userUUID.String())
+			user, err := cf.CreateUser(logger, cfClient, userUUID.String())
 			if err != nil {
 				panic(err)
 			}
@@ -155,16 +155,15 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 					"org.guid":   space.OrganizationGuid,
 					"space.name": space.Name,
 				})
-				spaceLogger.Debug("associating-user-with-org-for-space")
 
-				_, err := cfClient.AssociateOrgUser(space.OrganizationGuid, user.Guid)
+				spaceLogger.Debug("associating-user-with-org-for-space")
+				err = cf.AssociateUserWithOrg(logger, cfClient, user.Guid, space.OrganizationGuid)
 				if err != nil {
-					spaceLogger.Error("failed-to-associate-user-with-org", err)
 					panic(err)
 				}
 
 				spaceLogger.Debug("making-user-space-developer")
-				err = cmd.MakeUserSpaceDeveloper(logger, cfClient, user.Guid, space.Guid)
+				err = cf.MakeUserSpaceDeveloper(logger, cfClient, user.Guid, space.Guid)
 				if err != nil {
 					panic(err)
 				}
@@ -185,9 +184,8 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 				})
 				orgLogger.Debug("associating-user-with-org")
 
-				_, err = cfClient.AssociateOrgUser(org.Guid, user.Guid)
+				err = cf.AssociateUserWithOrg(logger, cfClient, user.Guid, org.Guid)
 				if err != nil {
-					orgLogger.Error("failed-to-associate-user-with-org", err)
 					panic(err)
 				}
 			}
