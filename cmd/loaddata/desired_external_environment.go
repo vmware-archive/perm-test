@@ -56,7 +56,7 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 			logger = logger.WithData(lager.Data{
 				"org.name": orgName,
 			})
-			org, err := cf.CreateOrg(logger, cfClient, orgName)
+			org, err := cf.CreateOrgIfNotExists(logger, cfClient, orgName)
 			if err != nil {
 				panic(err)
 			}
@@ -69,7 +69,7 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 					"space.name": spaceName,
 				})
 
-				space, err := cf.CreateSpace(logger, cfClient, spaceName, org.Guid)
+				space, err := cf.CreateSpaceIfNotExists(logger, cfClient, spaceName, org.Guid)
 				if err != nil {
 					panic(err)
 				}
@@ -82,7 +82,7 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 						"app.name": appName,
 					})
 
-					err = cf.CreateApp(logger, cfClient, appName, space.Guid)
+					err = cf.CreateAppIfNotExists(logger, cfClient, appName, space.Guid)
 					if err != nil {
 						panic(err)
 					}

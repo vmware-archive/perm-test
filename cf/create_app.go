@@ -12,7 +12,10 @@ import (
 	"github.com/cloudfoundry-community/go-cfclient"
 )
 
-func CreateApp(logger lager.Logger, cfClient *cfclient.Client, name string, spaceGUID string) error {
+// CreateAppIfNotExists creates an app in CloudFoundry using the V3 API
+// It uses an exponential backoff strategy, returning early if it successfully creates
+// an app or the app already exists
+func CreateAppIfNotExists(logger lager.Logger, cfClient *cfclient.Client, name string, spaceGUID string) error {
 	req := &CreateAppRequestBody{
 		Name: name,
 		Relationships: SpaceRelationship{

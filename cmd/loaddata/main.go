@@ -7,7 +7,9 @@ import (
 	"os"
 	"time"
 
+	"code.cloudfoundry.org/lager"
 	"github.com/cloudfoundry-community/go-cfclient"
+	"github.com/pivotal-cf/perm-test/cf"
 	"github.com/pivotal-cf/perm-test/cmd"
 	"gopkg.in/yaml.v2"
 
@@ -94,6 +96,20 @@ func main() {
 		}
 
 		e.Create(ctx, logger.Session("create-external-environment"), sem, cfClient)
+	}()
+
+	go func() {
+		for range time.NewTicker(10 * time.Second).C {
+			orgCount, _ := cf.OrgCount(logger, cfClient)
+			spaceCount, _ := cf.SpaceCount(logger, cfClient)
+			userCount, _ := cf.UserCount(logger, cfClient)
+
+			logger.Info("progress", lager.Data{
+				"org-count":   orgCount,
+				"space-count": spaceCount,
+				"user-count":  userCount,
+			})
+		}
 	}()
 
 	wg.Wait()

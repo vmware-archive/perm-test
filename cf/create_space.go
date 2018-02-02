@@ -6,9 +6,13 @@ import (
 	"code.cloudfoundry.org/lager"
 	"github.com/cenkalti/backoff"
 	"github.com/cloudfoundry-community/go-cfclient"
+	"github.com/pivotal-cf/perm-test/cf/internal"
 )
 
-func CreateSpace(logger lager.Logger, cfClient *cfclient.Client, spaceName string, orgGUID string) (*cfclient.Space, error) {
+// CreateSpaceIfNotExists creates a space in CloudFoundry using the V2 API
+// It uses an exponential backoff strategy, returning early if it successfully creates
+// a space or the space already exists
+func CreateSpaceIfNotExists(logger lager.Logger, cfClient *cfclient.Client, spaceName string, orgGUID string) (*cfclient.Space, error) {
 	logger.Debug("creating-space")
 	spaceRequest := cfclient.SpaceRequest{
 		Name:             spaceName,
@@ -21,10 +25,30 @@ func CreateSpace(logger lager.Logger, cfClient *cfclient.Client, spaceName strin
 
 	operation := func() error {
 		space, err = cfClient.CreateSpace(spaceRequest)
-		if err != nil {
+		switch e := err.(type) {
+		case nil:
+			return nil
+
+		case cfclient.CloudFoundryErrors:
+			if len(e.Errors) == 0 {
+				return err
+			}
+
+			cfError := e.Errors[0]
+			if cfError.ErrorCode == internal.SpaceNameTaken {
+				return nil
+			}
+		case cfclient.CloudFoundryError:
+			if e.ErrorCode == internal.SpaceNameTaken {
+				return nil
+			}
+
+			return err
+		default:
 			return err
 		}
-		return nil
+
+		return err
 	}
 
 	err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {

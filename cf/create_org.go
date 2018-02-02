@@ -6,9 +6,13 @@ import (
 	"code.cloudfoundry.org/lager"
 	"github.com/cenkalti/backoff"
 	"github.com/cloudfoundry-community/go-cfclient"
+	"github.com/pivotal-cf/perm-test/cf/internal"
 )
 
-func CreateOrg(logger lager.Logger, cfClient *cfclient.Client, orgName string) (*cfclient.Org, error) {
+// CreateOrgIfNotExists creates an org in CloudFoundry using the V2 API
+// It uses an exponential backoff strategy, returning early if it successfully creates
+// an org or the org already exists
+func CreateOrgIfNotExists(logger lager.Logger, cfClient *cfclient.Client, orgName string) (*cfclient.Org, error) {
 	logger.Debug("creating-org", lager.Data{
 		"name": orgName,
 	})
@@ -23,10 +27,30 @@ func CreateOrg(logger lager.Logger, cfClient *cfclient.Client, orgName string) (
 	)
 	operation := func() error {
 		org, err = cfClient.CreateOrg(orgRequest)
-		if err != nil {
+		switch e := err.(type) {
+		case nil:
+			return nil
+
+		case cfclient.CloudFoundryErrors:
+			if len(e.Errors) == 0 {
+				return err
+			}
+
+			cfError := e.Errors[0]
+			if cfError.ErrorCode == internal.OrganizationNameTaken {
+				return nil
+			}
+		case cfclient.CloudFoundryError:
+			if e.ErrorCode == internal.OrganizationNameTaken {
+				return nil
+			}
+
+			return err
+		default:
 			return err
 		}
-		return nil
+
+		return err
 	}
 
 	err = backoff.RetryNotify(operation, backoff.NewExponentialBackOff(), func(err error, step time.Duration) {
