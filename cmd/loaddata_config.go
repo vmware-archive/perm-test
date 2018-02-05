@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 
 	"code.cloudfoundry.org/lager"
@@ -33,8 +34,20 @@ type TestEnvironmentConfig struct {
 }
 
 type ExternalEnvironmentConfig struct {
-	OrgCount  int `yaml:"org_count"`
-	UserCount int `yaml:"user_count"`
+	OrgCount               int                     `yaml:"org_count"`
+	UserCount              int                     `yaml:"user_count"`
+	UserOrgDistributions   []UserOrgDistribution   `yaml:"user_org_distribution"`
+	UserSpaceDistributions []UserSpaceDistribution `yaml:"user_space_distribution"`
+}
+
+type UserOrgDistribution struct {
+	PercentUsers float64 `yaml:"percent_users"`
+	NumOrgs      int     `yaml:"num_orgs"`
+}
+
+type UserSpaceDistribution struct {
+	PercentUsers float64 `yaml:"percent_users"`
+	NumSpaces    int     `yaml:"num_spaces"`
 }
 
 func (c *LoadDataConfig) NewLogger(component string) lager.Logger {
@@ -58,4 +71,32 @@ func (c *LoadDataConfig) NewLogger(component string) lager.Logger {
 	logger.RegisterSink(sink)
 
 	return logger
+}
+
+func (c *LoadDataConfig) Validate() error {
+	var p float64
+	for _, d := range c.TestDataConfig.ExternalEnvironmentConfig.UserOrgDistributions {
+		p += d.PercentUsers
+
+		if d.NumOrgs > c.TestDataConfig.TestEnvironmentConfig.OrgCount {
+			return errors.New("error in user_org_distribution: users in external environment should not have access to more orgs than test user")
+		}
+	}
+	if p != 1 {
+		return errors.New("error in user_org_distribution: percentage of users must sum to 1")
+	}
+
+	p = 0.0
+	for _, d := range c.TestDataConfig.ExternalEnvironmentConfig.UserSpaceDistributions {
+		p += d.PercentUsers
+
+		if d.NumSpaces > (c.TestDataConfig.TestEnvironmentConfig.OrgCount * c.TestDataConfig.SpacesPerOrgCount) {
+			return errors.New("error in user_space_distribution: users in external environment should not have access to more spaces than test user")
+		}
+	}
+	if p != 1 {
+		return errors.New("error in user_space_distribution: percentage of users must sum to 1")
+	}
+
+	return nil
 }

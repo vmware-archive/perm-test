@@ -45,6 +45,12 @@ func main() {
 	}
 
 	logger := config.NewLogger("perm-loaddata")
+	err = config.Validate()
+	if err != nil {
+		logger.Error("failed-to-validate-config", err)
+		panic(err)
+	}
+
 	logger.Info("starting")
 
 	httpClient := &http.Client{
