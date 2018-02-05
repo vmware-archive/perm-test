@@ -11,16 +11,18 @@ import (
 	"code.cloudfoundry.org/lager"
 	"github.com/cloudfoundry-community/go-cfclient"
 	"github.com/pivotal-cf/perm-test/cf"
+	"github.com/pivotal-cf/perm-test/cmd"
 	"github.com/satori/go.uuid"
 	"golang.org/x/sync/semaphore"
 )
 
 type DesiredExternalEnvironment struct {
-	SpacesPerOrgCount int
-	AppsPerSpaceCount int
-	OrgCount          int
-	UserCount         int
-	Lambda            float64
+	SpacesPerOrgCount      int
+	AppsPerSpaceCount      int
+	OrgCount               int
+	UserCount              int
+	UserOrgDistributions   []cmd.UserOrgDistribution
+	UserSpaceDistributions []cmd.UserSpaceDistribution
 }
 
 func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Logger, sem *semaphore.Weighted, cfClient *cfclient.Client) {
@@ -35,8 +37,6 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 		"spaces-per-org-count": e.SpacesPerOrgCount,
 		"apps-per-space-count": e.AppsPerSpaceCount,
 		"org-count":            e.OrgCount,
-		"user-count":           e.UserCount,
-		"lambda":               e.Lambda,
 	})
 	var err error
 	var wg sync.WaitGroup
@@ -106,11 +106,12 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 	}
 
 	logger.Debug("creating-users-and-assigning-roles", lager.Data{
-		"spaces-per-org-count": e.SpacesPerOrgCount,
-		"apps-per-space-count": e.AppsPerSpaceCount,
-		"org-count":            e.OrgCount,
-		"user-count":           e.UserCount,
-		"lambda":               e.Lambda,
+		"spaces-per-org-count":    e.SpacesPerOrgCount,
+		"apps-per-space-count":    e.AppsPerSpaceCount,
+		"org-count":               e.OrgCount,
+		"user-count":              e.UserCount,
+		"user-org-distribution":   e.UserOrgDistributions,
+		"user-space-distribution": e.UserSpaceDistributions,
 	})
 	// Create a bunch of users
 	// For every user
@@ -118,6 +119,8 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 	//    Randomly assign an org role for that many orgs
 	//  Calculate the number of spaces it should see
 	//    Randomly assign a space role for that many spaces
+	r := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
+
 	for i := 0; i < e.UserCount; i++ {
 		err = sem.Acquire(ctx, 1)
 		if err != nil {
@@ -125,12 +128,17 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 			panic(err)
 		}
 
+		numOrgAssignments := chooseNumOrgAssignments(r, e.UserOrgDistributions)
+		orgs := randomlyChooseOrgs(r, orgsCreated, numOrgAssignments)
+
+		numSpaceAssignments := chooseNumSpaceAssignments(r, e.UserSpaceDistributions)
+		spaces := randomlyChooseSpaces(r, spacesCreated, numSpaceAssignments)
+
 		wg.Add(1)
-		go func(ctx context.Context, wg *sync.WaitGroup, sem *semaphore.Weighted, logger lager.Logger, i int, orgs []*cfclient.Org, spaces []*cfclient.Space) {
+		go func(ctx context.Context, wg *sync.WaitGroup, sem *semaphore.Weighted, logger lager.Logger, i int, r *rand.Rand, orgs []*cfclient.Org, spaces []*cfclient.Space) {
 			defer wg.Done()
 			defer sem.Release(1)
 
-			r := rand.New(rand.NewSource(time.Now().UTC().UnixNano()))
 			userUUID := uuid.NewV4()
 
 			user, err := cf.CreateUser(logger, cfClient, userUUID.String())
@@ -141,14 +149,6 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 			logger = logger.WithData(lager.Data{
 				"user.guid": user.Guid,
 			})
-			numSpaceAssignments := uint(
-				math.Min(
-					r.ExpFloat64()*float64(e.OrgCount*e.SpacesPerOrgCount)/e.Lambda,
-					float64(e.OrgCount*e.SpacesPerOrgCount),
-				),
-			)
-
-			spaces = randomlyChooseSpaces(r, spacesCreated, numSpaceAssignments)
 
 			for _, space := range spaces {
 				spaceLogger := logger.WithData(lager.Data{
@@ -169,15 +169,6 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 				}
 			}
 
-			// Associate user with orgs and spaces
-			numOrgAssignments := uint(
-				math.Min(
-					r.ExpFloat64()*float64(e.OrgCount)/e.Lambda,
-					float64(e.OrgCount),
-				),
-			)
-
-			orgs = randomlyChooseOrgs(r, orgsCreated, numOrgAssignments)
 			for _, org := range orgs {
 				orgLogger := logger.WithData(lager.Data{
 					"org.name": org.Name,
@@ -189,10 +180,53 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 					panic(err)
 				}
 			}
-		}(ctx, &wg, sem, logger, i, orgsCreated, spacesCreated)
+		}(ctx, &wg, sem, logger, i, r, orgs, spaces)
 	}
 }
 
+// chooseNumOrgAssignments returns a number of organization assignments sampled
+// from the distribution.
+//
+// It does this by figuring out which "bucket" a randomly sampled user belongs to
+// and returning the number of orgs assigned to the bucket.
+func chooseNumOrgAssignments(r *rand.Rand, distributions []cmd.UserOrgDistribution) uint {
+	x := r.Float64()
+
+	var cum float64
+	for _, d := range distributions {
+		if x > cum && x <= cum+d.PercentUsers {
+			return uint(d.NumOrgs)
+		}
+
+		cum += d.PercentUsers
+	}
+
+	return 0
+}
+
+// chooseNumSpaceAssignments returns a number of space assignments sampled
+// from the distribution.
+//
+// It does this by figuring out which "bucket" a randomly sampled user belongs to
+// and returning the number of spaces assigned to the bucket.
+func chooseNumSpaceAssignments(r *rand.Rand, distributions []cmd.UserSpaceDistribution) uint {
+	x := r.Float64()
+
+	var cum float64
+	for _, d := range distributions {
+		if x > cum && x <= cum+d.PercentUsers {
+			return uint(d.NumSpaces)
+		}
+
+		cum += d.PercentUsers
+	}
+
+	return 0
+}
+
+// randomlyChooseOrgs returns a contiguous window of size num of orgs out of the slice
+//
+// It does this by randomly choosing an index between 0 and (len orgs - window size)
 func randomlyChooseOrgs(r *rand.Rand, orgs []*cfclient.Org, num uint) []*cfclient.Org {
 	maxIndex := int(math.Min(float64(len(orgs)-int(num)), float64(len(orgs))))
 
@@ -201,6 +235,9 @@ func randomlyChooseOrgs(r *rand.Rand, orgs []*cfclient.Org, num uint) []*cfclien
 	return orgs[idx:(idx + int(num))]
 }
 
+// randomlyChooseSpaces returns a contiguous window of size num of spaces out of the slice
+//
+// It does this by randomly choosing an index between 0 and (len spaces - window size)
 func randomlyChooseSpaces(r *rand.Rand, spaces []*cfclient.Space, num uint) []*cfclient.Space {
 	maxIndex := int(math.Min(float64(len(spaces)-int(num)), float64(len(spaces))))
 

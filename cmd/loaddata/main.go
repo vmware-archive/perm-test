@@ -98,7 +98,6 @@ func main() {
 			OrgCount:          config.TestDataConfig.ExternalEnvironmentConfig.OrgCount,
 			SpacesPerOrgCount: config.TestDataConfig.SpacesPerOrgCount,
 			AppsPerSpaceCount: config.TestDataConfig.AppsPerSpaceCount,
-			Lambda:            20,
 		}
 
 		e.Create(ctx, logger.Session("create-external-environment"), sem, cfClient)
