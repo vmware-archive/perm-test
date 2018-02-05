@@ -1,6 +1,7 @@
 #!/bin/bash
 
 set -eu
+set -o pipefail
 
 ENVIRONMENT_NAME="${ENVIRONMENT_NAME:-bosh-cleopatra}"
 DEPLOYMENT_NAME="${DEPLOYMENT_NAME:-cf}"
