@@ -94,10 +94,12 @@ func main() {
 		defer wg.Done()
 
 		e := &DesiredExternalEnvironment{
-			UserCount:         config.TestDataConfig.ExternalEnvironmentConfig.UserCount,
-			OrgCount:          config.TestDataConfig.ExternalEnvironmentConfig.OrgCount,
-			SpacesPerOrgCount: config.TestDataConfig.SpacesPerOrgCount,
-			AppsPerSpaceCount: config.TestDataConfig.AppsPerSpaceCount,
+			UserCount:              config.TestDataConfig.ExternalEnvironmentConfig.UserCount,
+			OrgCount:               config.TestDataConfig.ExternalEnvironmentConfig.OrgCount,
+			SpacesPerOrgCount:      config.TestDataConfig.SpacesPerOrgCount,
+			AppsPerSpaceCount:      config.TestDataConfig.AppsPerSpaceCount,
+			UserOrgDistributions:   config.TestDataConfig.ExternalEnvironmentConfig.UserOrgDistributions,
+			UserSpaceDistributions: config.TestDataConfig.ExternalEnvironmentConfig.UserSpaceDistributions,
 		}
 
 		e.Create(ctx, logger.Session("create-external-environment"), sem, cfClient)

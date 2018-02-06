@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"math"
 	"math/rand"
 	"sync"
 	"time"
@@ -128,12 +127,19 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 			panic(err)
 		}
 
-		numOrgAssignments := chooseNumOrgAssignments(r, e.UserOrgDistributions)
-		orgs := randomlyChooseOrgs(r, orgsCreated, numOrgAssignments)
+		numOrgAssignments := cmd.ChooseNumOrgAssignments(r, e.UserOrgDistributions)
+		orgs := cmd.RandomlyChooseOrgs(r, orgsCreated, numOrgAssignments)
 
-		numSpaceAssignments := chooseNumSpaceAssignments(r, e.UserSpaceDistributions)
-		spaces := randomlyChooseSpaces(r, spacesCreated, numSpaceAssignments)
+		numSpaceAssignments := cmd.ChooseNumSpaceAssignments(r, e.UserSpaceDistributions)
+		spaces := cmd.RandomlyChooseSpaces(r, spacesCreated, numSpaceAssignments)
 
+		logger.Info("creating-user-and-assigning-roles", lager.Data{
+			"i": i,
+			"numSpaceAssignments": numSpaceAssignments,
+			"numSpaces":           len(spaces),
+			"numOrgAssignments":   numOrgAssignments,
+			"numOrgs":             len(orgs),
+		})
 		wg.Add(1)
 		go func(ctx context.Context, wg *sync.WaitGroup, sem *semaphore.Weighted, logger lager.Logger, i int, r *rand.Rand, orgs []*cfclient.Org, spaces []*cfclient.Space) {
 			defer wg.Done()
@@ -182,66 +188,4 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 			}
 		}(ctx, &wg, sem, logger, i, r, orgs, spaces)
 	}
-}
-
-// chooseNumOrgAssignments returns a number of organization assignments sampled
-// from the distribution.
-//
-// It does this by figuring out which "bucket" a randomly sampled user belongs to
-// and returning the number of orgs assigned to the bucket.
-func chooseNumOrgAssignments(r *rand.Rand, distributions []cmd.UserOrgDistribution) uint {
-	x := r.Float64()
-
-	var cum float64
-	for _, d := range distributions {
-		if x > cum && x <= cum+d.PercentUsers {
-			return uint(d.NumOrgs)
-		}
-
-		cum += d.PercentUsers
-	}
-
-	return 0
-}
-
-// chooseNumSpaceAssignments returns a number of space assignments sampled
-// from the distribution.
-//
-// It does this by figuring out which "bucket" a randomly sampled user belongs to
-// and returning the number of spaces assigned to the bucket.
-func chooseNumSpaceAssignments(r *rand.Rand, distributions []cmd.UserSpaceDistribution) uint {
-	x := r.Float64()
-
-	var cum float64
-	for _, d := range distributions {
-		if x > cum && x <= cum+d.PercentUsers {
-			return uint(d.NumSpaces)
-		}
-
-		cum += d.PercentUsers
-	}
-
-	return 0
-}
-
-// randomlyChooseOrgs returns a contiguous window of size num of orgs out of the slice
-//
-// It does this by randomly choosing an index between 0 and (len orgs - window size)
-func randomlyChooseOrgs(r *rand.Rand, orgs []*cfclient.Org, num uint) []*cfclient.Org {
-	maxIndex := int(math.Min(float64(len(orgs)-int(num)), float64(len(orgs))))
-
-	idx := r.Intn(maxIndex)
-
-	return orgs[idx:(idx + int(num))]
-}
-
-// randomlyChooseSpaces returns a contiguous window of size num of spaces out of the slice
-//
-// It does this by randomly choosing an index between 0 and (len spaces - window size)
-func randomlyChooseSpaces(r *rand.Rand, spaces []*cfclient.Space, num uint) []*cfclient.Space {
-	maxIndex := int(math.Min(float64(len(spaces)-int(num)), float64(len(spaces))))
-
-	idx := r.Intn(maxIndex)
-
-	return spaces[idx:(idx + int(num))]
 }
