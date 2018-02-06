@@ -133,7 +133,7 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 		numSpaceAssignments := cmd.ChooseNumSpaceAssignments(r, e.UserSpaceDistributions)
 		spaces := cmd.RandomlyChooseSpaces(r, spacesCreated, numSpaceAssignments)
 
-		logger.Info("creating-user-and-assigning-roles", lager.Data{
+		logger.Debug("creating-user-and-assigning-roles", lager.Data{
 			"i": i,
 			"numSpaceAssignments": numSpaceAssignments,
 			"numSpaces":           len(spaces),
@@ -147,15 +147,17 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 
 			userUUID := uuid.NewV4()
 
+			logger = logger.WithData(lager.Data{
+				"user.guid": userUUID.String(),
+			})
 			user, err := cf.CreateUser(logger, cfClient, userUUID.String())
 			if err != nil {
 				panic(err)
 			}
 
-			logger = logger.WithData(lager.Data{
-				"user.guid": user.Guid,
+			logger.Debug("assigning-space-roles", lager.Data{
+				"space.count": len(spaces),
 			})
-
 			for _, space := range spaces {
 				spaceLogger := logger.WithData(lager.Data{
 					"org.guid":   space.OrganizationGuid,
@@ -175,6 +177,9 @@ func (e *DesiredExternalEnvironment) Create(ctx context.Context, logger lager.Lo
 				}
 			}
 
+			logger.Debug("assigning-org-roles", lager.Data{
+				"org.count": len(orgs),
+			})
 			for _, org := range orgs {
 				orgLogger := logger.WithData(lager.Data{
 					"org.name": org.Name,
