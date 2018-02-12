@@ -76,19 +76,19 @@ func main() {
 	sem := semaphore.NewWeighted(NumParallelWorkers)
 
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-
-		e := &DesiredTestEnvironment{
-			UserGUID:          config.TestDataConfig.TestEnvironmentConfig.UserGUID,
-			OrgCount:          config.TestDataConfig.TestEnvironmentConfig.OrgCount,
-			SpacesPerOrgCount: config.TestDataConfig.SpacesPerOrgCount,
-			AppsPerSpaceCount: config.TestDataConfig.AppsPerSpaceCount,
-		}
-
-		e.Create(ctx, logger.Session("create-test-environment"), sem, cfClient)
-	}()
+	wg.Add(1)
+	//go func() {
+	//	defer wg.Done()
+	//
+	//	e := &DesiredTestEnvironment{
+	//		UserGUID:          config.TestDataConfig.TestEnvironmentConfig.UserGUID,
+	//		OrgCount:          config.TestDataConfig.TestEnvironmentConfig.OrgCount,
+	//		SpacesPerOrgCount: config.TestDataConfig.SpacesPerOrgCount,
+	//		AppsPerSpaceCount: config.TestDataConfig.AppsPerSpaceCount,
+	//	}
+	//
+	//	e.Create(ctx, logger.Session("create-test-environment"), sem, cfClient)
+	//}()
 
 	go func() {
 		defer wg.Done()

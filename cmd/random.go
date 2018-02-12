@@ -52,7 +52,7 @@ func ChooseNumSpaceAssignments(r *rand.Rand, distributions []UserSpaceDistributi
 // RandomlyChooseOrgs returns a contiguous window of size num of orgs out of the slice
 //
 // It does this by randomly choosing an index between 0 and (len orgs - window size)
-func RandomlyChooseOrgs(r *rand.Rand, orgs []*cfclient.Org, num uint) []*cfclient.Org {
+func RandomlyChooseOrgs(r *rand.Rand, orgs []cfclient.Org, num uint) []cfclient.Org {
 	maxIndex := int(math.Min(float64(len(orgs)-int(num)), float64(len(orgs))))
 
 	idx := r.Intn(maxIndex)
@@ -63,7 +63,7 @@ func RandomlyChooseOrgs(r *rand.Rand, orgs []*cfclient.Org, num uint) []*cfclien
 // RandomlyChooseSpaces returns a contiguous window of size num of spaces out of the slice
 //
 // It does this by randomly choosing an index between 0 and (len spaces - window size)
-func RandomlyChooseSpaces(r *rand.Rand, spaces []*cfclient.Space, num uint) []*cfclient.Space {
+func RandomlyChooseSpaces(r *rand.Rand, spaces []cfclient.Space, num uint) []cfclient.Space {
 	maxIndex := int(math.Min(float64(len(spaces)-int(num)), float64(len(spaces))))
 
 	idx := r.Intn(maxIndex)
