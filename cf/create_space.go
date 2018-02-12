@@ -34,9 +34,10 @@ func CreateSpaceIfNotExists(logger lager.Logger, cfClient *cfclient.Client, spac
 				return err
 			}
 
-			cfError := e.Errors[0]
-			if cfError.ErrorCode == internal.SpaceNameTaken {
-				return nil
+			for _, cfError := range e.Errors {
+				if cfError.ErrorCode == internal.SpaceNameTaken {
+					return nil
+				}
 			}
 		case cfclient.CloudFoundryError:
 			if e.ErrorCode == internal.SpaceNameTaken {

@@ -58,9 +58,10 @@ func CreateAppIfNotExists(logger lager.Logger, cfClient *cfclient.Client, name s
 			// To get around this, we return nil if we detect this case, which causes
 			// the backoff function to stop retrying.
 			//
-			cfError := e.Errors[0]
-			if cfError.Detail == "name must be unique in space" {
-				return nil
+			for _, cfError := range e.Errors {
+				if cfError.Detail == "name must be unique in space" {
+					return nil
+				}
 			}
 
 			return err
