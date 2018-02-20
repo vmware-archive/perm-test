@@ -14,8 +14,8 @@ cf api "${api_endpoint}" --skip-ssl-validation
 
 cf auth "${CF_USERNAME}" "${CF_PASSWORD}"
 authorization_token="$(cat ~/.cf/config.json | jq -r .AccessToken)"
-ab -n300 -H "Authorization: ${authorization_token}" -c1 -k "${api_endpoint}/v3/apps"
+ab -n300 -s6000 -H "Authorization: ${authorization_token}" -c1 -k "${api_endpoint}/v3/apps"
 
 cf auth "${CF_USERNAME}" "${CF_PASSWORD}"
 authorization_token="$(cat ~/.cf/config.json | jq -r .AccessToken)"
-ab -n1000 -H "Authorization: ${authorization_token}" -c10 -k "${api_endpoint}/v3/apps"
+ab -n1000 -s6000 -H "Authorization: ${authorization_token}" -c10 -k "${api_endpoint}/v3/apps"
